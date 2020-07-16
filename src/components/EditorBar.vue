@@ -1,9 +1,8 @@
 <template lang="html">
     <div class="editor">
-        <div ref="toolbar" class="toolbar">
-        </div>
-        <div ref="editor" class="text">
-        </div>
+        <div ref="toolbar" class="toolbar" />
+        <div ref="editor" class="text" />
+<!--        <div ref="editorForm"/>-->
     </div>
 </template>
 
@@ -14,7 +13,7 @@
         data() {
             return {
                 editor: null,
-                info_: null
+                info_: this.value
             }
         },
         model: {
@@ -38,23 +37,20 @@
                     this.editor.txt.clear()
                     this.info_ = null
                 }
+            },
+            value(val) {
+                this.editor.txt.html(this.value)
             }
         },
+
         mounted() {
             this.seteditor()
             this.editor.txt.html(this.value)
         },
+
         methods: {
             seteditor() {
                 this.editor = new E(this.$refs.toolbar, this.$refs.editor)
-
-                this.editor.customConfig.uploadImgShowBase64 = true // base 64 存储图片
-                this.editor.customConfig.uploadImgServer = '' // 配置服务器端地址
-                this.editor.customConfig.uploadImgHeaders = {} // 自定义 header
-                this.editor.customConfig.uploadFileName = '' // 后端接受上传文件的参数名
-                this.editor.customConfig.uploadImgMaxSize = 2 * 1024 * 1024 // 将图片大小限制为 2M
-                this.editor.customConfig.uploadImgMaxLength = 6 // 限制一次最多上传 3 张图片
-                this.editor.customConfig.uploadImgTimeout = 3 * 60 * 1000 // 设置超时时间
 
                 // 配置菜单
                 this.editor.customConfig.menus = [
@@ -97,6 +93,7 @@
                         // 图片上传成功,插入图片的回调
                     }
                 }
+
                 this.editor.customConfig.onchange = (html) => {
                     this.info_ = html // 绑定当前逐渐地值
                     this.$emit('change', this.info_) // 将内容同步到父组件中
@@ -104,6 +101,7 @@
 
                 // 创建富文本编辑器
                 this.editor.create()
+                // this.editor.txt.html(this.value)
             }
         }
     }
