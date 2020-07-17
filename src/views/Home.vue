@@ -111,20 +111,24 @@
              * 改变编辑器内容
              */
             change(val) {
+                console.log("change")
                  // 同步编辑器中的信息
                 this.editor.value = val
                 let note = this.noteData[this.noteIndex]
                 // 如果是在线状态并且没有在同步中，则更新到服务器
                 if (this.isOnline && !this.sync && val !== note.content) {
+                    console.log("同步 ==> 服务器")
                     this.sync = true
                     setTimeout(() => {
                         this.syncToServer(note.id, note.title, note.content)
-                    }, 1000)
+                    }, 100)
                 }
-                // 更新本地data的内容
-                note.content = this.editor.value
-                // 更新本地缓存，笔记内容
-                this.updateLocalNote(note.id, note.content)
+                if (val !== note.content) {
+                    // 更新本地data的内容
+                    note.content = this.editor.value
+                    // 更新本地缓存，笔记内容
+                    this.updateLocalNoteContent(note.id, note.content)
+                }
             },
 
             /**
@@ -143,24 +147,19 @@
              */
             checkSync() {
                 const _this = this
-                // 1、检查更新过的笔记，得到一个同步的列表
+                // 1、对当前的笔记进行更新
                 let note = this.noteData[this.noteIndex]
+                // 判断本地是否更新
                 let isNeedUpdate = _this.getIsNeedUpdate(note.id);
                 console.log(isNeedUpdate)
                 if (isNeedUpdate)
                     this.syncToServer(note.id, note.title, note.content)
-                // 统一同步到服务器
-                // if (needToServerItems.length !== 0) {
-                //     needToServerItems.forEach(item => {
-                //         this.syncToServer(item.id, item.title, item.content)
-                //     })
-                // }
             },
 
             getIsNeedUpdate(noteId) {
                 let key = "noteId_" + noteId
-                let notesInfo = localStorage.getItem("notesInfo");
-                notesInfo = JSON.parse(notesInfo)
+                let notesInfo = this.getNotesInfo()
+                if (!notesInfo || !notesInfo[key]) return false
                 return notesInfo[key]['update']
             },
 
@@ -171,15 +170,15 @@
             showDetail(item, i) {
                 this.noteIndex = i
                 let note = this.noteData[i]
-                // 更改显示内容
-                this.change(note.content)
-                if (this.getIsNeedUpdate(note.id)) {
+                if (this.getIsNeedUpdate(note.id) && this.isOnline) {
                     // 查看本地是否更新，更新则push笔记，然后修改update
                     this.syncToServer(note.id, note.title, note.content)
                 } else {
                     // 否则查看版本，不同则拉取数据
                     this.checkVersion(note.id, this.getVersion(note.id), i)
                 }
+                // 更改显示内容
+                this.editor.value = note.content
             },
 
             /**
@@ -205,9 +204,17 @@
              */
             getVersion(noteId) {
                 let key = "noteId_" + noteId
-                let notesInfo = localStorage.getItem("notesInfo");
-                notesInfo = JSON.parse(notesInfo)
+                let notesInfo = this.getNotesInfo()
+                if (!notesInfo || !notesInfo[key]) return -1
                 return notesInfo[key]['version']
+            },
+
+            /**
+             * 获取本地笔记信息
+             */
+            getNotesInfo() {
+                let notesInfo = localStorage.getItem("notesInfo");
+                return JSON.parse(notesInfo)
             },
 
             /**
@@ -224,8 +231,11 @@
                             _this.noteData[index] = note
                             _this.editor.value = note.content
                             // 更新本地版本
-                            _this.updateLocalVersion(note.id, note.version)
-                            _this.updateLocalNote(note.id, note.content)
+                            _this.updateLocalNoteVersion(note.id, note.version)
+                            // 更新本地内容
+                            _this.updateLocalNoteContent(note.id, note.content)
+                            // 更新本地状态
+                            _this.updateLocalNoteStatus(note.id, false)
                         }
                     })
             },
@@ -246,9 +256,9 @@
                         if (data.code === 0) {
                             console.log(data)
                             // 更新本地版本
-                            _this.updateLocalVersion(noteId, data.data.version)
+                            _this.updateLocalNoteVersion(noteId, data.data.version)
                             // 更新本地状态
-                            _this.updateStatus(noteId, false)
+                            _this.updateLocalNoteStatus(noteId, false)
                             _this.sync = false
                         }
                     })
@@ -276,7 +286,7 @@
                             // 显示当前笔记的详情
                             _this.showDetail(data.data, 0)
                             // 更新本地版本
-                            _this.updateLocalVersion(data.data.id, data.data.version)
+                            _this.updateLocalNoteVersion(data.data.id, data.data.version)
                         }
                     })
                 }
@@ -306,7 +316,7 @@
             /**
              * 更新本地版本
              */
-            updateLocalVersion(noteId, version) {
+            updateLocalNoteVersion(noteId, version) {
                 // console.log("更新本地版本")
                 // console.log("noteId: " + noteId + " version: " + version)
                 let notesInfo = localStorage.getItem("notesInfo");
@@ -328,7 +338,7 @@
             /**
              * 更新状态
              */
-            updateStatus(noteId, status) {
+            updateLocalNoteStatus(noteId, status) {
                 let notesInfo = localStorage.getItem("notesInfo");
                 let key = "noteId_" + noteId
                 if (!notesInfo) {
@@ -344,7 +354,7 @@
             /**
              * 更新本地笔记内容
              */
-            updateLocalNote(noteId, content) {
+            updateLocalNoteContent(noteId, content) {
                 // console.log("更新本地内容")
                 // console.log("noteId: " + noteId + " content: " + content)
                 let key = "noteId_" + noteId
@@ -383,15 +393,32 @@
                     .then(res => {
                     let data = res.data
                     if (data.code === 0 || data.code === 10001) {
-                        _this.noteData = data.data
-                        // console.log(_this.noteData)
-                        if (_this.noteData.length !== 0) {
+                        if (data.data.length !== 0) {
+                            data.data.forEach(item => {
+                                let content = _this.haveAndGetContent(item.id);
+                                if (content) {
+                                    // 如果有本地笔记，则使用本地笔记
+                                    // 否则使用最新的笔记
+                                    item.content = content
+                                    console.log("使用本地")
+                                }
+                            })
+                            _this.noteData = data.data
                             _this.editor.value = _this.noteData[0].content
                             // console.log(_this.editor.value)
                         }
                     }
                 })
-            }
+            },
+
+            haveAndGetContent(noteId) {
+                let key = "noteId_" + noteId
+                let notesInfo = this.getNotesInfo()
+                if (!notesInfo || !notesInfo[key] || !notesInfo[key]['content']) {
+                    return false
+                }
+                return notesInfo[key]['content']
+            },
         },
 
         components: {
@@ -408,8 +435,6 @@
             const _this = this
             // 初始化笔记
             this.initNotes()
-            // 对比版本号
-
         }
     }
 
