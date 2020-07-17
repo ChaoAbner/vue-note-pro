@@ -121,7 +121,7 @@
                     this.sync = true
                     setTimeout(() => {
                         this.syncToServer(note.id, note.title, note.content)
-                    }, 100)
+                    }, 300)
                 }
                 if (val !== note.content) {
                     // 更新本地data的内容
@@ -186,7 +186,11 @@
              */
             checkVersion(noteId, version, index) {
                 const _this = this
-                this.$axios.get(`http://localhost:8899/sync/${version}/note/${noteId}`)
+                let config = Qs.stringify({
+                    headers: {
+                        'Authorization': _this.$store.getters.getToken
+                    }})
+                this.$axios.get(`http://localhost:8899/sync/${version}/note/${noteId}`, config)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -222,7 +226,11 @@
              */
             pullNoteFromServer(id, index) {
                 const _this = this
-                this.$axios.get(`http://localhost:8899/sync/note/${id}`)
+                let config = Qs.stringify({
+                    headers: {
+                        'Authorization': _this.$store.getters.getToken
+                    }})
+                this.$axios.get(`http://localhost:8899/sync/note/${id}`, config)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -250,7 +258,11 @@
                     title: title,
                     content: content
                 })
-                this.$axios.put(`http://localhost:8899/sync/note/${noteId}/user/${this.user.username}`, data)
+                let config = Qs.stringify({
+                    headers: {
+                        'Authorization': _this.$store.getters.getToken
+                    }})
+                this.$axios.put(`http://localhost:8899/sync/note/${noteId}/user/${this.user.username}`, data, config)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -276,7 +288,11 @@
                 })
                 if (title != null) {
                     console.log("新建笔记")
-                    this.$axios.post("http://localhost:8899/note/detail/user/" + this.user.username, data)
+                    let config = Qs.stringify({
+                        headers: {
+                            'Authorization': _this.$store.getters.getToken
+                        }})
+                    this.$axios.post("http://localhost:8899/note/detail/user/" + this.user.username, data, config)
                         .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -299,7 +315,11 @@
                 let note = this.noteData[this.noteIndex]
                 // console.log(note)
                 let _this = this
-                this.$axios.delete(`http://localhost:8899/note/${note.id}/user/${this.user.username}`)
+                let config = Qs.stringify({
+                    headers: {
+                        'Authorization': _this.$store.getters.getToken
+                    }})
+                this.$axios.delete(`http://localhost:8899/note/${note.id}/user/${this.user.username}`, config)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -388,6 +408,15 @@
              */
             initNotes() {
                 const _this = this
+                let config = Qs.stringify({
+                    headers: {
+                        'Authorization': _this.$store.getters.getToken
+                    }
+                })
+                let headers = {
+                    'Authorization': _this.$store.getters.getToken
+                }
+                console.log(headers)
                 // 拉取笔记
                 this.$axios.get("http://localhost:8899/note/user/" + this.user.username)
                     .then(res => {
@@ -405,7 +434,6 @@
                             })
                             _this.noteData = data.data
                             _this.editor.value = _this.noteData[0].content
-                            // console.log(_this.editor.value)
                         }
                     }
                 })

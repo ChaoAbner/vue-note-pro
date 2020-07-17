@@ -41,6 +41,10 @@ export default new Vuex.Store({
       return state.userInfo
     },
 
+    getToken: state => {
+      return state.token
+    },
+
     getVersion: (state, noteId) => {
       let key = "noteId_" + noteId
       let notesInfo = localStorage.getItem("notesInfo");
