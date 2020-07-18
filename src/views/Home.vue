@@ -90,7 +90,9 @@
                 isClear: false,
                 noteData: [],
                 noteIndex: 0,
-                sync: false
+                sync: false,
+                start: 0,
+                limit: -1
             }
         },
 
@@ -186,11 +188,7 @@
              */
             checkVersion(noteId, version, index) {
                 const _this = this
-                let config = Qs.stringify({
-                    headers: {
-                        'Authorization': _this.$store.getters.getToken
-                    }})
-                this.$axios.get(`http://localhost:8899/sync/${version}/note/${noteId}`, config)
+                this.$axios.get(`sync/${version}/note/${noteId}`)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -226,11 +224,8 @@
              */
             pullNoteFromServer(id, index) {
                 const _this = this
-                let config = Qs.stringify({
-                    headers: {
-                        'Authorization': _this.$store.getters.getToken
-                    }})
-                this.$axios.get(`http://localhost:8899/sync/note/${id}`, config)
+
+                this.$axios.get(`/sync/note/${id}`, )
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -258,11 +253,7 @@
                     title: title,
                     content: content
                 })
-                let config = Qs.stringify({
-                    headers: {
-                        'Authorization': _this.$store.getters.getToken
-                    }})
-                this.$axios.put(`http://localhost:8899/sync/note/${noteId}/user/${this.user.username}`, data, config)
+                this.$axios.put(`sync/note/${noteId}`, data)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -288,11 +279,8 @@
                 })
                 if (title != null) {
                     console.log("新建笔记")
-                    let config = Qs.stringify({
-                        headers: {
-                            'Authorization': _this.$store.getters.getToken
-                        }})
-                    this.$axios.post("http://localhost:8899/note/detail/user/" + this.user.username, data, config)
+
+                    this.$axios.post(`note/`, data)
                         .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -315,11 +303,7 @@
                 let note = this.noteData[this.noteIndex]
                 // console.log(note)
                 let _this = this
-                let config = Qs.stringify({
-                    headers: {
-                        'Authorization': _this.$store.getters.getToken
-                    }})
-                this.$axios.delete(`http://localhost:8899/note/${note.id}/user/${this.user.username}`, config)
+                this.$axios.delete(`note/${note.id}`)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -408,17 +392,8 @@
              */
             initNotes() {
                 const _this = this
-                let config = Qs.stringify({
-                    headers: {
-                        'Authorization': _this.$store.getters.getToken
-                    }
-                })
-                let headers = {
-                    'Authorization': _this.$store.getters.getToken
-                }
-                console.log(headers)
                 // 拉取笔记
-                this.$axios.get("http://localhost:8899/note/user/" + this.user.username)
+                this.$axios.get(`note/user?start=${this.start}&limit=${this.limit}`,)
                     .then(res => {
                     let data = res.data
                     if (data.code === 0 || data.code === 10001) {
@@ -427,13 +402,13 @@
                                 let content = _this.haveAndGetContent(item.id);
                                 if (content) {
                                     // 如果有本地笔记，则使用本地笔记
-                                    // 否则使用最新的笔记
                                     item.content = content
                                     console.log("使用本地")
                                 }
                             })
                             _this.noteData = data.data
                             _this.editor.value = _this.noteData[0].content
+                            // this.checkVersion(_this.noteData[0].id, this.getVersion(_this.noteData[0].id), i)
                         }
                     }
                 })

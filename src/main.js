@@ -18,18 +18,18 @@ const axios_instance = axios.create({
     data = Qs.stringify(data);
     return data;
   }],
-  // headers:{
-  //   'Content-Type':'application/x-www-form-urlencoded',
-  // }
+  headers: {
+
+  }
 })
 // 全局引用
 Vue.prototype.$axios = axios
+// Vue.prototype.HOST=''
 
 // Vue.use(VueCookies)
 Vue.use(VueAxios, axios_instance);
 // 使用
 Vue.use(Element)
-
 Vue.config.productionTip = false
 
 new Vue({
