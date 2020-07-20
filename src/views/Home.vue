@@ -74,7 +74,6 @@
 
 <script>
     import EditorBar from '@/components/EditorBar'
-    import Qs from 'qs'
 
     export default {
         name: "Home",
@@ -92,7 +91,7 @@
                 noteIndex: 0,
                 sync: false,
                 start: 0,
-                limit: -1
+                limit: 20
             }
         },
 
@@ -110,6 +109,25 @@
             },
 
             /**
+             * 时间戳转格式化时间
+             */
+            timestampToFormatTime(tempStamp) {
+                let date = new Date(tempStamp)
+                let Y = date.getFullYear() + '-'
+                let M = (date.getMonth()+1 < 10 ? '0'+(date.getMonth()+1) : date.getMonth()+1) + '-'
+                let D = date.getDate() + ' '
+                let h = date.getHours() + ':'
+                let m = date.getMinutes() + ':'
+                let s = date.getSeconds();
+                return Y + M + D + h + m + s
+            },
+
+            formatTimeToTimeStamp(formatTime) {
+                let date = new Date(formatTime)
+                return date.getTime()
+            },
+
+            /**
              * 改变编辑器内容
              */
             change(val) {
@@ -124,6 +142,14 @@
                     setTimeout(() => {
                         this.syncToServer(note.id, note.title, note.content)
                     }, 300)
+                }
+                // 离线状态
+                if (!this.isOnline) {
+                    // 如果存在，则更新离线数据
+                    if (!this.updateOfflineData(note, val)) {
+                        // 如果不存在，则添加新的离线数据
+                        this.pushOfflineData()
+                    }
                 }
                 if (val !== note.content) {
                     // 更新本地data的内容
@@ -156,6 +182,26 @@
                 console.log(isNeedUpdate)
                 if (isNeedUpdate)
                     this.syncToServer(note.id, note.title, note.content)
+                // 判断是否有离线的创建的笔记，进行同步
+                this.pushOfflineData()
+            },
+
+            pushOfflineData(){
+                let offlineData = localStorage.getItem("offlineData");
+                // 有离线的数据
+                if (offlineData && offlineData.length !== 0) {
+                    offlineData.forEach(item => {
+                        if (item.id) {
+                            // 判断数据中是否有id，有id说明已存在于数据库, 更新笔记到数据库
+                            this.syncToServer(item.id, item.title, item.content)
+                        } else {
+                            // 无id，则是新建笔记
+                            this.pushNoteToServer(item.title, item.content, item.updateTime)
+                        }
+                    })
+                    // 清空离线数据
+                    localStorage.setItem("offlineData", undefined)
+                }
             },
 
             getIsNeedUpdate(noteId) {
@@ -176,8 +222,8 @@
                     // 查看本地是否更新，更新则push笔记，然后修改update
                     this.syncToServer(note.id, note.title, note.content)
                 } else {
-                    // 否则查看版本，不同则拉取数据
-                    this.checkVersion(note.id, this.getVersion(note.id), i)
+                    // 否则查看更新时间，不同则拉取数据
+                    this.checkUpdateTime(note.id, this.getUpdateTimeStamp(note.id), i)
                 }
                 // 更改显示内容
                 this.editor.value = note.content
@@ -186,7 +232,7 @@
             /**
              * 检查版本
              */
-            checkVersion(noteId, version, index) {
+            checkUpdateTime(noteId, version, index) {
                 const _this = this
                 this.$axios.get(`sync/${version}/note/${noteId}`)
                     .then(res => {
@@ -204,11 +250,18 @@
             /**
              * 获取本地的版本
              */
-            getVersion(noteId) {
+            // getVersion(noteId) {
+            //     let key = "noteId_" + noteId
+            //     let notesInfo = this.getNotesInfo()
+            //     if (!notesInfo || !notesInfo[key]) return -1
+            //     return notesInfo[key]['version']
+            // },
+
+            getUpdateTimeStamp(noteId) {
                 let key = "noteId_" + noteId
                 let notesInfo = this.getNotesInfo()
-                if (!notesInfo || !notesInfo[key]) return -1
-                return notesInfo[key]['version']
+                if (!notesInfo || !notesInfo[key]) return new Date().getTime()
+                return notesInfo[key]['updateTime']
             },
 
             /**
@@ -234,7 +287,7 @@
                             _this.noteData[index] = note
                             _this.editor.value = note.content
                             // 更新本地版本
-                            _this.updateLocalNoteVersion(note.id, note.version)
+                            // _this.updateLocalNoteVersion(note.id, note.version)
                             // 更新本地内容
                             _this.updateLocalNoteContent(note.id, note.content)
                             // 更新本地状态
@@ -249,17 +302,18 @@
             syncToServer(noteId, title, content) {
                 console.log("同步笔记")
                 const _this = this
-                let data = Qs.stringify({
+                let data = JSON.stringify({
+                    id: noteId,
                     title: title,
-                    content: content
+                    content: content,
                 })
-                this.$axios.put(`sync/note/${noteId}`, data)
+                this.$axios.put(`sync/note/timestamp/${this.getUpdateTimeStamp(noteId)}`, data)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
                             console.log(data)
-                            // 更新本地版本
-                            _this.updateLocalNoteVersion(noteId, data.data.version)
+                            // 更新同步时间
+                            // _this.updateLocalNoteVersion(noteId, data.data.version)
                             // 更新本地状态
                             _this.updateLocalNoteStatus(noteId, false)
                             _this.sync = false
@@ -271,48 +325,98 @@
              * 创建新的笔记
              */
             newNote() {
-                const _this = this
                 let title = prompt("请输入笔记的标题",""); // 弹出input框
-                let data = Qs.stringify({
-                    "title": title,
-                    "content": ""
-                })
+
                 if (title != null) {
                     console.log("新建笔记")
+                    if (this.isOnline) {
+                        // 在线直接push
+                        this.pushNoteToServer(title, "", new Date().getTime())
+                    } else {
+                        // 如果是离线创建的笔记，先保存到缓存，添加一个字段offlineCreate
+                        // 等下次在线的时候遍历缓存，找出离线创建的笔记，统一进行push
+                        this.addOfflineData(title)
+                    }
+                }
+            },
 
-                    this.$axios.post(`note/`, data)
-                        .then(res => {
+            /**
+             * 新建笔记，push到服务器
+             */
+            pushNoteToServer(title, content, updateTime) {
+                let _this = this
+                let data = JSON.stringify({
+                    title: title,
+                    content: content,
+                })
+
+                this.$axios.post(`note/timestamp/${updateTime}`, data)
+                    .then(res => {
                         let data = res.data
                         if (data.code === 0) {
-                            console.log(data)
+                            // 设置到第一位
                             _this.noteData.unshift(data.data)
                             _this.noteIndex = 0
                             // 显示当前笔记的详情
                             _this.showDetail(data.data, 0)
                             // 更新本地版本
                             _this.updateLocalNoteVersion(data.data.id, data.data.version)
+                            _this.updateLocalNoteStatus()
+                        }
+                    })
+            },
+
+            addOfflineData(title) {
+                let offlineData = localStorage.getItem("offlineData");
+                if (!offlineData) {
+                    offlineData = []
+                    offlineData.push({title: title, content: "", updateTime: new Date().getTime()})
+                } else {
+                    offlineData = JSON.parse(offlineData);
+                    offlineData.push({title: title, content: "", updateTime: new Date().getTime()})
+                }
+                localStorage.setItem("offlineData", JSON.stringify(offlineData))
+            },
+
+            updateOfflineData(item, content) {
+                let offlineData = localStorage.getItem("offlineData");
+                if (!offlineData) {
+                    offlineData = []
+                    item.updateTime = new Date().getTime()
+                    offlineData.push(item)
+                    return true
+                } else {
+                    offlineData = JSON.parse(offlineData);
+                    offlineData.forEach(i => {
+                        if (i.updateTime === item.updateTime) {
+                            i.content = content
+                            i.updateTime = new Date().getTime()
+                            localStorage.setItem("offlineData", JSON.stringify(offlineData))
+                            return true
                         }
                     })
                 }
+                return false
             },
 
             /**
              * 删除笔记
              */
-            deleteNote() {
+            deleteNote: function () {
                 let note = this.noteData[this.noteIndex]
                 // console.log(note)
+
                 let _this = this
-                this.$axios.delete(`note/${note.id}`)
+                this.$axios.delete(`note/${note.id}/timestamp/${new Date().getTime()}`)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
                             // console.log(data)
                             _this.success("删除成功")
                             _this.$store.commit("DELETE_NOTE", note.id)
-                            setTimeout(() => {
-                                _this.reload()
-                            }, 1000)
+                            // setTimeout(() => {
+                            //     _this.reload()
+                            // }, 1000)
                         }
                     })
             },
@@ -320,24 +424,24 @@
             /**
              * 更新本地版本
              */
-            updateLocalNoteVersion(noteId, version) {
-                // console.log("更新本地版本")
-                // console.log("noteId: " + noteId + " version: " + version)
-                let notesInfo = localStorage.getItem("notesInfo");
-                let key = "noteId_" + noteId
-                if (!notesInfo) {
-                    notesInfo = {}
-                    notesInfo[key] = {version: version, update: true}
-                } else {
-                    notesInfo = JSON.parse(notesInfo);
-                    if (!notesInfo[key]) {
-                        notesInfo[key] = {version: version}
-                    } else {
-                        notesInfo[key]['version'] = version
-                    }
-                }
-                localStorage.setItem("notesInfo", JSON.stringify(notesInfo))
-            },
+            // updateLocalNoteVersion(noteId, version) {
+            //     // console.log("更新本地版本")
+            //     // console.log("noteId: " + noteId + " version: " + version)
+            //     let notesInfo = localStorage.getItem("notesInfo");
+            //     let key = "noteId_" + noteId
+            //     if (!notesInfo) {
+            //         notesInfo = {}
+            //         notesInfo[key] = {version: version, update: true}
+            //     } else {
+            //         notesInfo = JSON.parse(notesInfo);
+            //         if (!notesInfo[key]) {
+            //             notesInfo[key] = {version: version}
+            //         } else {
+            //             notesInfo[key]['version'] = version
+            //         }
+            //     }
+            //     localStorage.setItem("notesInfo", JSON.stringify(notesInfo))
+            // },
 
             /**
              * 更新状态
@@ -347,7 +451,7 @@
                 let key = "noteId_" + noteId
                 if (!notesInfo) {
                     notesInfo = {}
-                    notesInfo[key] = {version: version, update: true}
+                    notesInfo[key] = {update: true}
                 } else {
                     notesInfo = JSON.parse(notesInfo);
                     notesInfo[key]['update'] = status
@@ -365,15 +469,16 @@
                 let notesInfo = localStorage.getItem("notesInfo");
                 if (!notesInfo) {
                     notesInfo = {}
-                    notesInfo[key] = {update: true, content: content}
+                    notesInfo[key] = {update: true, content: content, updateTime: new Date().getTime()}
                 } else {
                     notesInfo = JSON.parse(notesInfo)
                     console.log(notesInfo)
                     if (!notesInfo[key]) {
-                        notesInfo[key] = {update: true, content: content}
+                        notesInfo[key] = {update: true, content: content, updateTime: new Date().getTime()}
                     } else {
                         notesInfo[key]['update'] = true
                         notesInfo[key]['content'] = content
+                        notesInfo[key]['updateTime'] = new Date().getTime()
                     }
                 }
                 localStorage.setItem("notesInfo", JSON.stringify(notesInfo))
@@ -399,6 +504,7 @@
                     if (data.code === 0 || data.code === 10001) {
                         if (data.data.length !== 0) {
                             data.data.forEach(item => {
+                                item.updateTime = _this.formatTimeToTimeStamp(item.updateTime)
                                 let content = _this.haveAndGetContent(item.id);
                                 if (content) {
                                     // 如果有本地笔记，则使用本地笔记
@@ -408,7 +514,7 @@
                             })
                             _this.noteData = data.data
                             _this.editor.value = _this.noteData[0].content
-                            // this.checkVersion(_this.noteData[0].id, this.getVersion(_this.noteData[0].id), i)
+                            // console.log(_this.noteData)
                         }
                     }
                 })

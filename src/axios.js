@@ -7,6 +7,9 @@ axios.defaults.baseURL='http://127.0.0.1:8899'
 axios.interceptors.request.use(config => {
     console.log("前置拦截")
     // 可以统一设置请求头
+    if (config.method === 'post' || config.method === 'put') {
+        config.headers['Content-Type'] = 'application/json;charset=utf-8'
+    }
     let token = localStorage.getItem("token")
     if (token) {
         // 将token放到请求头发送给服务器,将token放在请求头中
