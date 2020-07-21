@@ -91,7 +91,8 @@
                 noteIndex: 0,
                 sync: false,
                 start: 0,
-                limit: 20
+                limit: 20,
+
             }
         },
 
@@ -131,12 +132,11 @@
              * 改变编辑器内容
              */
             change(val) {
-                console.log("change")
                  // 同步编辑器中的信息
                 this.editor.value = val
                 let note = this.noteData[this.noteIndex]
                 // 如果是在线状态并且没有在同步中，则更新到服务器
-                if (this.isOnline && !this.sync && val !== note.content) {
+                if (this.isOnline && !this.sync && val !== note.content && note.id) {
                     console.log("同步 ==> 服务器")
                     this.sync = true
                     setTimeout(() => {
@@ -144,14 +144,17 @@
                     }, 300)
                 }
                 // 离线状态
-                if (!this.isOnline) {
+                if (!this.isOnline && val !== note.content) {
                     // 如果存在，则更新离线数据
-                    if (!this.updateOfflineData(note, val)) {
+                    let b = this.updateOfflineDataContent(note, val);
+                    console.log(b)
+                    // if (!b) {
+                    //     console.log("添加新的离线数据")
                         // 如果不存在，则添加新的离线数据
-                        this.pushOfflineData()
-                    }
+                        // this.addOfflineData(note)
+                    // }
                 }
-                if (val !== note.content) {
+                if (val !== note.content && note.id) {
                     // 更新本地data的内容
                     note.content = this.editor.value
                     // 更新本地缓存，笔记内容
@@ -164,11 +167,15 @@
              */
             changeStatus() {
                 this.isOnline = !this.isOnline;
-                // 如果是离线变成在线，则检查需要同步的笔记
                 if (this.isOnline) {
+                    localStorage.setItem("lastOnlineStatus", "1")
+                    // 如果是离线变成在线，则检查需要同步的笔记
                     this.checkSync()
+                } else {
+                    localStorage.setItem("lastOnlineStatus", "0")
                 }
             },
+
 
             /**
              * 对所有的笔记列表进行检查同步
@@ -177,17 +184,19 @@
                 const _this = this
                 // 1、对当前的笔记进行更新
                 let note = this.noteData[this.noteIndex]
-                // 判断本地是否更新
-                let isNeedUpdate = _this.getIsNeedUpdate(note.id);
-                console.log(isNeedUpdate)
-                if (isNeedUpdate)
-                    this.syncToServer(note.id, note.title, note.content)
+                if (note.id) {
+                    // 判断本地是否更新
+                    let isNeedUpdate = _this.getIsNeedUpdate(note.id);
+                    // console.log(isNeedUpdate)
+                    if (isNeedUpdate)
+                        this.syncToServer(note.id, note.title, note.content)
+                }
                 // 判断是否有离线的创建的笔记，进行同步
                 this.pushOfflineData()
             },
 
             pushOfflineData(){
-                let offlineData = localStorage.getItem("offlineData");
+                let offlineData = this.getLocalInfo("offlineData");
                 // 有离线的数据
                 if (offlineData && offlineData.length !== 0) {
                     offlineData.forEach(item => {
@@ -200,15 +209,21 @@
                         }
                     })
                     // 清空离线数据
-                    localStorage.setItem("offlineData", undefined)
+                    localStorage.setItem("offlineData", JSON.stringify([]))
                 }
             },
 
+            /**
+             * 查看同步时间与修改时间的差别，判断是否需要更新
+             */
             getIsNeedUpdate(noteId) {
                 let key = "noteId_" + noteId
-                let notesInfo = this.getNotesInfo()
+                let notesInfo = this.getLocalInfo("notesInfo")
                 if (!notesInfo || !notesInfo[key]) return false
-                return notesInfo[key]['update']
+                let updateTime = notesInfo[key]['updateTime']
+                let syncTime = notesInfo[key]['syncTime']
+                if (!syncTime) return true
+                return syncTime < updateTime
             },
 
             /**
@@ -218,23 +233,24 @@
             showDetail(item, i) {
                 this.noteIndex = i
                 let note = this.noteData[i]
-                if (this.getIsNeedUpdate(note.id) && this.isOnline) {
-                    // 查看本地是否更新，更新则push笔记，然后修改update
+                if (this.getIsNeedUpdate(note.id) && this.isOnline && note.id) {
+                    // 查看本地是否更新，更新则push笔记，然后修改syncTime
                     this.syncToServer(note.id, note.title, note.content)
                 } else {
                     // 否则查看更新时间，不同则拉取数据
-                    this.checkUpdateTime(note.id, this.getUpdateTimeStamp(note.id), i)
+                    if (note.id)
+                        this.checkUpdateTime(note.id, this.getUpdateTimeStamp(note.id), i)
                 }
                 // 更改显示内容
                 this.editor.value = note.content
             },
 
             /**
-             * 检查版本
+             * 检查是否需要更新时间
              */
-            checkUpdateTime(noteId, version, index) {
+            checkUpdateTime(noteId, localUpdateTime, index) {
                 const _this = this
-                this.$axios.get(`sync/${version}/note/${noteId}`)
+                this.$axios.get(`sync/${localUpdateTime}/note/${noteId}`)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -248,18 +264,11 @@
             },
 
             /**
-             * 获取本地的版本
+             * 获取笔记的更新时间
              */
-            // getVersion(noteId) {
-            //     let key = "noteId_" + noteId
-            //     let notesInfo = this.getNotesInfo()
-            //     if (!notesInfo || !notesInfo[key]) return -1
-            //     return notesInfo[key]['version']
-            // },
-
             getUpdateTimeStamp(noteId) {
                 let key = "noteId_" + noteId
-                let notesInfo = this.getNotesInfo()
+                let notesInfo = this.getLocalInfo("notesInfo")
                 if (!notesInfo || !notesInfo[key]) return new Date().getTime()
                 return notesInfo[key]['updateTime']
             },
@@ -267,9 +276,12 @@
             /**
              * 获取本地笔记信息
              */
-            getNotesInfo() {
-                let notesInfo = localStorage.getItem("notesInfo");
-                return JSON.parse(notesInfo)
+            getLocalInfo(key) {
+                let infos = localStorage.getItem(key);
+                if (infos === undefined || !infos)
+                    return null
+                else
+                    return JSON.parse(infos)
             },
 
             /**
@@ -278,7 +290,7 @@
             pullNoteFromServer(id, index) {
                 const _this = this
 
-                this.$axios.get(`/sync/note/${id}`, )
+                this.$axios.get(`/sync/note/${id}`)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -286,12 +298,10 @@
                             let note = data.data
                             _this.noteData[index] = note
                             _this.editor.value = note.content
-                            // 更新本地版本
-                            // _this.updateLocalNoteVersion(note.id, note.version)
                             // 更新本地内容
                             _this.updateLocalNoteContent(note.id, note.content)
-                            // 更新本地状态
-                            _this.updateLocalNoteStatus(note.id, false)
+                            // 更新本地更新时间和同步时间
+                            _this.updateLocalNoteSyncTime(note.id)
                         }
                     })
             },
@@ -313,21 +323,23 @@
                         if (data.code === 0) {
                             console.log(data)
                             // 更新同步时间
-                            // _this.updateLocalNoteVersion(noteId, data.data.version)
-                            // 更新本地状态
-                            _this.updateLocalNoteStatus(noteId, false)
+                            _this.updateLocalNoteSyncTime(noteId)
                             _this.sync = false
                         }
                     })
             },
+
 
             /**
              * 创建新的笔记
              */
             newNote() {
                 let title = prompt("请输入笔记的标题",""); // 弹出input框
-
                 if (title != null) {
+                    if (title.length > 30) {
+                        this.$message("标题长度不能超过30")
+                        return
+                    }
                     console.log("新建笔记")
                     if (this.isOnline) {
                         // 在线直接push
@@ -335,13 +347,16 @@
                     } else {
                         // 如果是离线创建的笔记，先保存到缓存，添加一个字段offlineCreate
                         // 等下次在线的时候遍历缓存，找出离线创建的笔记，统一进行push
-                        this.addOfflineData(title)
+                        let offlineData = this.addOfflineData({title: title, content: ""});
+                        this.noteData.unshift(offlineData[offlineData.length - 1])
+                        // 更改显示内容
+                        this.editor.value = offlineData[offlineData.length - 1].content
                     }
                 }
             },
 
             /**
-             * 新建笔记，push到服务器
+             * push笔记到服务器
              */
             pushNoteToServer(title, content, updateTime) {
                 let _this = this
@@ -349,54 +364,20 @@
                     title: title,
                     content: content,
                 })
-
                 this.$axios.post(`note/timestamp/${updateTime}`, data)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
+                            let note = data.data
                             // 设置到第一位
-                            _this.noteData.unshift(data.data)
+                            _this.noteData.unshift(note)
                             _this.noteIndex = 0
                             // 显示当前笔记的详情
-                            _this.showDetail(data.data, 0)
-                            // 更新本地版本
-                            _this.updateLocalNoteVersion(data.data.id, data.data.version)
-                            _this.updateLocalNoteStatus()
+                            _this.showDetail(note, 0)
+                            // 更新本地同步时间
+                            _this.updateLocalNoteSyncTime(note.id)
                         }
                     })
-            },
-
-            addOfflineData(title) {
-                let offlineData = localStorage.getItem("offlineData");
-                if (!offlineData) {
-                    offlineData = []
-                    offlineData.push({title: title, content: "", updateTime: new Date().getTime()})
-                } else {
-                    offlineData = JSON.parse(offlineData);
-                    offlineData.push({title: title, content: "", updateTime: new Date().getTime()})
-                }
-                localStorage.setItem("offlineData", JSON.stringify(offlineData))
-            },
-
-            updateOfflineData(item, content) {
-                let offlineData = localStorage.getItem("offlineData");
-                if (!offlineData) {
-                    offlineData = []
-                    item.updateTime = new Date().getTime()
-                    offlineData.push(item)
-                    return true
-                } else {
-                    offlineData = JSON.parse(offlineData);
-                    offlineData.forEach(i => {
-                        if (i.updateTime === item.updateTime) {
-                            i.content = content
-                            i.updateTime = new Date().getTime()
-                            localStorage.setItem("offlineData", JSON.stringify(offlineData))
-                            return true
-                        }
-                    })
-                }
-                return false
             },
 
             /**
@@ -404,57 +385,107 @@
              */
             deleteNote: function () {
                 let note = this.noteData[this.noteIndex]
-                // console.log(note)
-
                 let _this = this
-                this.$axios.delete(`note/${note.id}/timestamp/${new Date().getTime()}`)
-                    .then(res => {
-                        let data = res.data
-                        if (data.code === 0) {
-                            // console.log(data)
-                            _this.success("删除成功")
-                            _this.$store.commit("DELETE_NOTE", note.id)
-                            // setTimeout(() => {
-                            //     _this.reload()
-                            // }, 1000)
+                // 先判断是否只是离线数据，如果只是离线数据，则删除离线数据即可
+                if (!note.id) {
+                    let offlineData = this.getLocalInfo("offlineData");
+                    if (offlineData) {
+                        for (let i = 0; i < offlineData.length; i++) {
+                            if (offlineData[i].updateTime === note.updateTime) {
+                                offlineData.splice(i, 1)
+                                break
+                            }
                         }
-                    })
+                        localStorage.setItem("offlineData", JSON.stringify(offlineData))
+                        _this.success("删除成功")
+                        setTimeout(() => {
+                            _this.reload()
+                        }, 1000)
+                    }
+                } else {
+                    this.$axios.delete(`note/${note.id}/timestamp/${new Date().getTime()}`)
+                        .then(res => {
+                            let data = res.data
+                            if (data.code === 0) {
+                                // console.log(data)
+                                _this.success("删除成功")
+                                setTimeout(() => {
+                                    _this.reload()
+                                }, 1000)
+                            }
+                        })
+                }
             },
 
             /**
-             * 更新本地版本
+             * 添加离线数据
              */
-            // updateLocalNoteVersion(noteId, version) {
-            //     // console.log("更新本地版本")
-            //     // console.log("noteId: " + noteId + " version: " + version)
-            //     let notesInfo = localStorage.getItem("notesInfo");
-            //     let key = "noteId_" + noteId
-            //     if (!notesInfo) {
-            //         notesInfo = {}
-            //         notesInfo[key] = {version: version, update: true}
-            //     } else {
-            //         notesInfo = JSON.parse(notesInfo);
-            //         if (!notesInfo[key]) {
-            //             notesInfo[key] = {version: version}
-            //         } else {
-            //             notesInfo[key]['version'] = version
-            //         }
-            //     }
-            //     localStorage.setItem("notesInfo", JSON.stringify(notesInfo))
-            // },
+            addOfflineData(note) {
+                let offlineData = this.getLocalInfo("offlineData");
+                if (!offlineData) {
+                    offlineData = []
+                    offlineData = this.addLocalOfflineDataHelper(offlineData, note)
+                } else {
+                    offlineData = this.addLocalOfflineDataHelper(offlineData, note)
+                }
+                localStorage.setItem("offlineData", JSON.stringify(offlineData))
+                return offlineData
+            },
+
+            addLocalOfflineDataHelper(offlineData, note) {
+                if (note.id) {
+                    offlineData.push({id: note.id, title: note.title, content: note.content,
+                        updateTime: new Date().getTime()})
+                } else {
+                    offlineData.push({title: note.title, content: note.content, updateTime: new Date().getTime()})
+                }
+                return offlineData
+            },
 
             /**
-             * 更新状态
+             * 更新离线内容
              */
-            updateLocalNoteStatus(noteId, status) {
+            updateOfflineDataContent(item, content) {
+                console.log("需要更新的note:")
+                console.log(item)
+                console.log("更新的内容：" + content)
+                let offlineData = this.getLocalInfo("offlineData");
+                if (!offlineData) {
+                    console.log("创建新的离线数据")
+                    offlineData = []
+                    // push新的离线数据
+                    item.updateTime = new Date().getTime()
+                    offlineData.push(item)
+                    localStorage.setItem("offlineData", JSON.stringify(offlineData))
+                    return true
+                } else {
+                    console.log("offlineData：")
+                    console.log(offlineData)
+                    for (let i = 0; i < offlineData.length; i++) {
+                        if (offlineData[i].updateTime === item.updateTime) {
+                            offlineData[i].content = content
+                            offlineData[i].updateTime = new Date().getTime()
+                            this.noteData[this.noteIndex] = offlineData[i]
+                            localStorage.setItem("offlineData", JSON.stringify(offlineData))
+                            return true
+                        }
+                    }
+                }
+                return false
+            },
+
+            /**
+             * 更新同步时间
+             */
+            updateLocalNoteSyncTime(noteId) {
                 let notesInfo = localStorage.getItem("notesInfo");
                 let key = "noteId_" + noteId
                 if (!notesInfo) {
                     notesInfo = {}
-                    notesInfo[key] = {update: true}
+                    notesInfo[key] = {syncTime: new Date().getTime()}
                 } else {
                     notesInfo = JSON.parse(notesInfo);
-                    notesInfo[key]['update'] = status
+                    notesInfo[key]['syncTime'] = new Date().getTime()
                 }
                 localStorage.setItem("notesInfo", JSON.stringify(notesInfo))
             },
@@ -469,14 +500,13 @@
                 let notesInfo = localStorage.getItem("notesInfo");
                 if (!notesInfo) {
                     notesInfo = {}
-                    notesInfo[key] = {update: true, content: content, updateTime: new Date().getTime()}
+                    notesInfo[key] = {content: content, updateTime: new Date().getTime()}
                 } else {
                     notesInfo = JSON.parse(notesInfo)
                     console.log(notesInfo)
                     if (!notesInfo[key]) {
-                        notesInfo[key] = {update: true, content: content, updateTime: new Date().getTime()}
+                        notesInfo[key] = {content: content, updateTime: new Date().getTime()}
                     } else {
-                        notesInfo[key]['update'] = true
                         notesInfo[key]['content'] = content
                         notesInfo[key]['updateTime'] = new Date().getTime()
                     }
@@ -502,8 +532,9 @@
                     .then(res => {
                     let data = res.data
                     if (data.code === 0 || data.code === 10001) {
-                        if (data.data.length !== 0) {
+                        // if (data.data.length !== 0) {
                             data.data.forEach(item => {
+                                // 转换时间为时间戳
                                 item.updateTime = _this.formatTimeToTimeStamp(item.updateTime)
                                 let content = _this.haveAndGetContent(item.id);
                                 if (content) {
@@ -512,22 +543,53 @@
                                     console.log("使用本地")
                                 }
                             })
+                            // 获取离线数据
+                            let offlineData = _this.getOfflineData();
+                            // 聚合离线数据
+                            data.data = data.data.concat(offlineData)
+                            // 根据更新时间来进行排序
+                            data.data.sort(this.compare("updateTime"))
                             _this.noteData = data.data
                             _this.editor.value = _this.noteData[0].content
-                            // console.log(_this.noteData)
-                        }
+                        // }
                     }
                 })
             },
 
+            compare(property) {
+                return function(a, b) {
+                    let v1 = a[property]
+                    let v2 = b[property]
+                    return v2 - v1
+                }
+            },
+
+            getOfflineData() {
+                let offlineData = this.getLocalInfo("offlineData")
+                if (!offlineData || offlineData.length === 0) {
+                    return []
+                }
+                return offlineData
+            },
+
             haveAndGetContent(noteId) {
                 let key = "noteId_" + noteId
-                let notesInfo = this.getNotesInfo()
+                let notesInfo = this.getLocalInfo("notesInfo")
                 if (!notesInfo || !notesInfo[key] || !notesInfo[key]['content']) {
                     return false
                 }
                 return notesInfo[key]['content']
             },
+
+            initLastOnlineStatus() {
+                let lastOnlineStatus = localStorage.getItem("lastOnlineStatus");
+                if (!lastOnlineStatus) {
+                    this.isOnline = true
+                    localStorage.setItem("lastOnlineStatus", '1')
+                    return
+                }
+                this.isOnline = lastOnlineStatus === '1'
+            }
         },
 
         components: {
@@ -544,6 +606,7 @@
             const _this = this
             // 初始化笔记
             this.initNotes()
+            this.initLastOnlineStatus()
         }
     }
 
