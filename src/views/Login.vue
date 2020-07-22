@@ -5,7 +5,7 @@
           <el-form :model="ruleForm" status-icon :rules="rules" ref="ruleForm"
                   class="demo-ruleForm" style="width: 50%; margin: 100px auto">
             <el-form-item label="用户名" prop="username">
-              <el-input type="text" maxlength="12" v-model="ruleForm.username"></el-input>
+              <el-input type="text" maxlength="10" v-model="ruleForm.username"></el-input>
             </el-form-item>
             <el-form-item>
               <el-button type="primary" @click="submitForm('ruleForm')">登录</el-button>
@@ -49,7 +49,6 @@
               _this.$store.commit('SET_USERINFO', data.user)
               _this.$router.push("/home")
             })
-              _this.$router.push("/home")
           } else {
             console.log('error submit!!');
             return false;
