@@ -17,6 +17,7 @@
                         <el-button @click="changeStatus" v-if="isOnline" type="success">在线</el-button>
                         <el-button @click="changeStatus" v-else type="danger">离线</el-button>
                         <el-button @click="deleteNote" v-if="noteData.length !== 0" type="warning">删除当前笔记</el-button>
+                        <el-button type="text" @click="openDeleteNotes">垃圾箱</el-button>
                     </div>
 
                 </el-col>
@@ -89,10 +90,11 @@
                 isClear: false,
                 noteData: [],
                 noteIndex: 0,
+                deleteData: [],
                 sync: false,
                 start: 0,
                 limit: 20,
-
+                visible: false
             }
         },
 
@@ -107,6 +109,10 @@
                     message: msg,
                     type: 'success'
                 });
+            },
+
+            openDeleteNotes() {
+                this.$router.push("/del")
             },
 
             /**
@@ -155,6 +161,7 @@
                     // }
                 }
                 if (val !== note.content && note.id) {
+
                     // 更新本地data的内容
                     note.content = this.editor.value
                     // 更新本地缓存，笔记内容
@@ -205,7 +212,7 @@
                             this.syncToServer(item.id, item.title, item.content)
                         } else {
                             // 无id，则是新建笔记
-                            this.pushNoteToServer(item.title, item.content, item.updateTime)
+                            this.pushNoteToServer(item.title, item.content, item.updateTime, false)
                         }
                     })
                     // 清空离线数据
@@ -246,11 +253,11 @@
             },
 
             /**
-             * 检查是否需要更新时间
+             * 检查是否需要更新
              */
             checkUpdateTime(noteId, localUpdateTime, index) {
                 const _this = this
-                this.$axios.get(`sync/${localUpdateTime}/note/${noteId}`)
+                this.$axios.get(`sync/note/${noteId}/need?timestamp=${localUpdateTime}`)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -269,7 +276,7 @@
             getUpdateTimeStamp(noteId) {
                 let key = "noteId_" + noteId
                 let notesInfo = this.getLocalInfo("notesInfo")
-                if (!notesInfo || !notesInfo[key]) return new Date().getTime()
+                if (!notesInfo || !notesInfo[key]) return 1
                 return notesInfo[key]['updateTime']
             },
 
@@ -317,7 +324,7 @@
                     title: title,
                     content: content,
                 })
-                this.$axios.put(`sync/note/timestamp/${this.getUpdateTimeStamp(noteId)}`, data)
+                this.$axios.put(`sync/note?timestamp=${this.getUpdateTimeStamp(noteId)}`, data)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
@@ -358,22 +365,24 @@
             /**
              * push笔记到服务器
              */
-            pushNoteToServer(title, content, updateTime) {
+            pushNoteToServer(title, content, updateTime, unshift = true) {
                 let _this = this
                 let data = JSON.stringify({
                     title: title,
                     content: content,
                 })
-                this.$axios.post(`note/timestamp/${updateTime}`, data)
+                this.$axios.post(`note/?timestamp=${updateTime}`, data)
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
                             let note = data.data
                             // 设置到第一位
-                            _this.noteData.unshift(note)
-                            _this.noteIndex = 0
-                            // 显示当前笔记的详情
-                            _this.showDetail(note, 0)
+                            if (unshift) {
+                                _this.noteData.unshift(note)
+                                _this.noteIndex = 0
+                                // 显示当前笔记的详情
+                                _this.showDetail(note, 0)
+                            }
                             // 更新本地同步时间
                             _this.updateLocalNoteSyncTime(note.id)
                         }
@@ -403,7 +412,7 @@
                         }, 1000)
                     }
                 } else {
-                    this.$axios.delete(`note/${note.id}/timestamp/${new Date().getTime()}`)
+                    this.$axios.delete(`note/${note.id}?timestamp=${new Date().getTime()}`)
                         .then(res => {
                             let data = res.data
                             if (data.code === 0) {
@@ -415,6 +424,7 @@
                             }
                         })
                 }
+                this.visible = false
             },
 
             /**

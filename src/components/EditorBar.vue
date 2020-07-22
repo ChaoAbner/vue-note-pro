@@ -28,6 +28,10 @@
             isClear: {
                 type: Boolean,
                 default: false
+            },
+            disable: {
+                type: Boolean,
+                default: false
             }
         },
         watch: {
@@ -102,6 +106,9 @@
                 // 创建富文本编辑器
                 this.editor.create()
                 // this.editor.txt.html(this.value)
+                if (this.disable) {
+                    this.editor.$textElem.attr('contenteditable', false)
+                }
             }
         }
     }
