@@ -140,6 +140,9 @@
             change(val) {
                  // 同步编辑器中的信息
                 this.editor.value = val
+                if (this.noteData.length === 0) {
+                    return
+                }
                 let note = this.noteData[this.noteIndex]
                 // 如果是在线状态并且没有在同步中，则更新到服务器
                 if (this.isOnline && !this.sync && val !== note.content && note.id) {
@@ -147,21 +150,20 @@
                     this.sync = true
                     setTimeout(() => {
                         this.syncToServer(note.id, note.title, note.content)
-                    }, 300)
+                    }, 500)
                 }
                 // 离线状态
                 if (!this.isOnline && val !== note.content) {
                     // 如果存在，则更新离线数据
                     let b = this.updateOfflineDataContent(note, val);
                     console.log(b)
-                    // if (!b) {
-                    //     console.log("添加新的离线数据")
+                    if (!b) {
+                        console.log("添加新的离线数据")
                         // 如果不存在，则添加新的离线数据
-                        // this.addOfflineData(note)
-                    // }
+                        this.addOfflineData(note)
+                    }
                 }
-                if (val !== note.content && note.id) {
-
+                if (note.id) {
                     // 更新本地data的内容
                     note.content = this.editor.value
                     // 更新本地缓存，笔记内容
@@ -323,6 +325,7 @@
                     id: noteId,
                     title: title,
                     content: content,
+                    status: 1,
                 })
                 this.$axios.put(`sync/note?timestamp=${this.getUpdateTimeStamp(noteId)}`, data)
                     .then(res => {
@@ -401,6 +404,7 @@
                     if (offlineData) {
                         for (let i = 0; i < offlineData.length; i++) {
                             if (offlineData[i].updateTime === note.updateTime) {
+                                // TODO 保存到垃圾箱
                                 offlineData.splice(i, 1)
                                 break
                             }
@@ -456,12 +460,12 @@
              * 更新离线内容
              */
             updateOfflineDataContent(item, content) {
-                console.log("需要更新的note:")
-                console.log(item)
-                console.log("更新的内容：" + content)
+                // console.log("需要更新的note:")
+                // console.log(item)
+                // console.log("更新的内容：" + content)
                 let offlineData = this.getLocalInfo("offlineData");
-                if (!offlineData) {
-                    console.log("创建新的离线数据")
+                if (!offlineData || offlineData.length === 0) {
+                    // console.log("创建新的离线数据")
                     offlineData = []
                     // push新的离线数据
                     item.updateTime = new Date().getTime()
@@ -469,15 +473,25 @@
                     localStorage.setItem("offlineData", JSON.stringify(offlineData))
                     return true
                 } else {
-                    console.log("offlineData：")
-                    console.log(offlineData)
+                    // console.log("offlineData：")
+                    // console.log(offlineData)
                     for (let i = 0; i < offlineData.length; i++) {
-                        if (offlineData[i].updateTime === item.updateTime) {
-                            offlineData[i].content = content
-                            offlineData[i].updateTime = new Date().getTime()
-                            this.noteData[this.noteIndex] = offlineData[i]
-                            localStorage.setItem("offlineData", JSON.stringify(offlineData))
-                            return true
+                        if (item.id) {
+                            if (offlineData[i].id === item.id) {
+                                offlineData[i] = item
+                                offlineData[i].content = content
+                                // this.noteData[this.noteIndex] = offlineData[i]
+                                localStorage.setItem("offlineData", JSON.stringify(offlineData))
+                                return true
+                            }
+                        } else {
+                            if (offlineData[i].updateTime === item.updateTime) {
+                                offlineData[i].content = content
+                                offlineData[i].updateTime = new Date().getTime()
+                                this.noteData[this.noteIndex] = offlineData[i]
+                                localStorage.setItem("offlineData", JSON.stringify(offlineData))
+                                return true
+                            }
                         }
                     }
                 }
@@ -544,8 +558,15 @@
                     if (data.code === 0 || data.code === 10001) {
                         // if (data.data.length !== 0) {
                             data.data.forEach(item => {
-                                // 转换时间为时间戳
-                                item.updateTime = _this.formatTimeToTimeStamp(item.updateTime)
+                                // 判断有无本地更新时间
+                                let updateTimeStamp = _this.getUpdateTimeStamp(item.id)
+                                if (updateTimeStamp !== 1) {
+                                    item.updateTime = updateTimeStamp
+                                } else {
+                                    // 转换时间为时间戳
+                                    item.updateTime = _this.formatTimeToTimeStamp(item.updateTime)
+                                }
+
                                 let content = _this.haveAndGetContent(item.id);
                                 if (content) {
                                     // 如果有本地笔记，则使用本地笔记
@@ -555,12 +576,18 @@
                             })
                             // 获取离线数据
                             let offlineData = _this.getOfflineData();
-                            // 聚合离线数据
-                            data.data = data.data.concat(offlineData)
+                            offlineData.forEach(item => {
+                                if (!item.id) {
+                                    data.data.push(item)
+                                }
+                            })
+                            // data.data = data.data.concat(offlineData)
                             // 根据更新时间来进行排序
                             data.data.sort(this.compare("updateTime"))
                             _this.noteData = data.data
-                            _this.editor.value = _this.noteData[0].content
+                            if (_this.noteData.length !== 0) {
+                                _this.editor.value = _this.noteData[0].content
+                            }
                         // }
                     }
                 })

@@ -87,6 +87,9 @@
                     .then(res => {
                         let data = res.data
                         if (data.code === 0) {
+                            data.data.forEach(item => {
+                                item.updateTime = _this.formatTimeToTimeStamp(item.updateTime)
+                            })
                             console.log(data.data)
                             _this.deletedData = data.data
                             _this.editor.value = data.data[_this.index].content
@@ -98,8 +101,12 @@
             foreverDelete() {
                 let _this = this
                 let note = this.deletedData[this.index]
+                let data = JSON.stringify({
+                    id: note.id,
+                    status: 3,
+                })
                 if (note.id) {
-                    this.$axios.put(`note/${note.id}/status/${3}`,)
+                    this.$axios.put(`note/?timestamp=${note.updateTime}`, data)
                         .then(res => {
                             let data = res.data
                             if (data.code === 0) {
@@ -123,8 +130,12 @@
             restore() {
                 let _this = this
                 let note = this.deletedData[this.index]
+                let data = JSON.stringify({
+                    status: 1,
+                    id: note.id
+                })
                 if (note.id) {
-                    this.$axios.put(`note/${note.id}/status/${1}`,)
+                    this.$axios.put(`note/?timestamp=${note.updateTime}`, data)
                         .then(res => {
                             let data = res.data
                             if (data.code === 0) {
@@ -141,6 +152,11 @@
                     // 恢复离线数据
 
                 }
+            },
+
+            formatTimeToTimeStamp(formatTime) {
+                let date = new Date(formatTime)
+                return date.getTime()
             },
 
             showDetail(item, index) {
