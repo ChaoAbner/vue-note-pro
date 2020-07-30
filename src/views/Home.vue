@@ -19,10 +19,29 @@
                         <el-button @click="deleteNote" v-if="noteData.length !== 0" type="warning">删除当前笔记</el-button>
                         <el-button type="text" @click="openDeleteNotes">垃圾箱</el-button>
                     </div>
+                </el-col>
+<!--                :auto-upload="false"-->
 
+                <el-col :span="3">
+                    <div class="grid-content bg-purple-light" v-if="noteData.length !== 0">
+                        <el-upload
+                                class="upload-demo"
+                                :action="aaa"
+                                :auto-upload="false"
+                                :on-preview="handlePreview"
+                                :on-remove="handleRemove"
+                                :headers="uploadHeaders"
+                                :limit="1"
+                                :before-upload="beforeUpload"
+                                :on-change="onChange"
+                                :file-list="fileList">
+                            <el-button style="margin-right: 1em" slot="trigger" size="small">选取</el-button>
+                            <el-button @click="uploadFile" size="small" type="primary">上传</el-button>
+                        </el-upload>
+                    </div>
                 </el-col>
 
-                <el-col :span="11">
+                <el-col :span="8">
                     <div v-model="username" class="grid-content bg-purple-light" style="color: #409EFF">
                         {{user.username}}
                         <el-button v-on:click="logout" style="margin-left: 50px;" type="danger" round>退出登录</el-button>
@@ -76,8 +95,17 @@
 <script>
     import EditorBar from '@/components/EditorBar'
 
+    let token = localStorage.getItem("token")
+
     export default {
+
+
         name: "Home",
+        props: {
+            shardSize: {
+                default: 1 * 1024 * 1024
+            }
+        },
         data() {
             return {
                 user: {
@@ -94,11 +122,169 @@
                 sync: false,
                 start: 0,
                 limit: 20,
-                visible: false
+                visible: false,
+                domain: "http://127.0.0.1:8899/image/note/",
+                uploadUrl: "",
+                fileList: [],
+                file: null,
+                uploadHeaders: {
+                    Authorization: token
+                },
             }
         },
 
         methods: {
+
+            submitUpload() {
+                console.log("submit upload")
+                console.log(this.file)
+                let _this = this
+                let formData = new FormData();
+                formData.append("file", this.file)
+                this.$axios.post(`image/note/${this.noteData[this.noteIndex].id}`, formData)
+                    .then(res => {
+                        let data = res.data
+                        if (data.code === 0) {
+                            console.log(data)
+                            _this.fileList.push(data.link)
+                        }
+                    })
+            },
+
+            onChange(file, fileList) {
+                console.log("onchange")
+                console.log(file)
+                this.file = file
+            },
+
+            handleRemove(file, fileList) {
+                console.log(file, fileList);
+                this.file = file
+            },
+
+            handlePreview(file) {
+                console.log(file);
+                this.file = file
+            },
+
+            beforeUpload(file) {
+                this.file = file
+                console.log("before upload")
+                console.log(file)
+            },
+
+            uploadFile() {
+                let file = this.file.raw
+                // console.log(`file size: ${file.size}, file type: ${file.type}, file name: ${file.name}`)
+                let key = this.$md5(file.name, file.size, file.type)
+                // console.log("md5:" + key)
+                // md5转十进制
+                let key10 = parseInt(key, 16);
+                // console.log("key10：" + key10)
+                // 十进制转62进制
+                let key62 = this._10to62(key10);
+                // console.log("key62: " + key62)
+
+                // 文件分片
+                let shardSize = this.shardSize      // 分片大小
+                let shardIndex = 1      // 分片索引
+                let size = file.size
+                let shardTotal = Math.ceil(size / shardSize)    // 总片数
+                let fileName = file.name
+                let suffix = fileName.substring(fileName.lastIndexOf(".") + 1, fileName.length).toLowerCase();
+                let param = {
+                    shardIndex: shardIndex,
+                    shardSize: shardSize,
+                    shardTotal: shardTotal,
+                    name: fileName,
+                    suffix: suffix,
+                    size: size,
+                    md5Key: key62
+                }
+                // console.log(param)
+
+                this.check(param)
+            },
+
+            _10to62: function (number) {
+                let chars = '0123456789abcdefghigklmnopqrstuvwxyzABCDEFGHIGKLMNOPQRSTUVWXYZ';
+                let radix = chars.length;
+                let arr = [];
+                do {
+                    let mod = number % radix;
+                    number = (number - mod) / radix;
+                    arr.unshift(chars[mod]);
+                } while (number);
+                return arr.join('');
+            },
+
+            /**
+             * 检查是否有过上传分片
+             */
+            check(param) {
+                let _this = this
+                this.$axios.get(`/image/shard/check?key=${param.md5Key}`).then(res => {
+                    let data = res.data
+                    if (data.code === 0) {
+                        let obj = data.data
+                        // console.log(obj)
+                        if (!obj) {
+                            // 分片从1开始上传
+                            _this.upload(param)
+                        } else if (obj.shardIndex === obj.shardTotal) {
+                            // 秒传
+                            console.log("秒传成功")
+                            this.$message({
+                                message: "秒传成功",
+                                type: "success"
+                            })
+                        } else {
+                            // 获取当前分片，设置当前分片，断点续传
+                            param.shardIndex = obj.shardIndex + 1
+                            console.log("找到分片记录，从第" + param.shardIndex + "个分片开始上传")
+                            _this.upload(param)
+                        }
+                    }
+                })
+            },
+
+            upload(param) {
+                let _this = this;
+                let shardIndex = param.shardIndex;
+                let shardTotal = param.shardTotal;
+                let shardSize = param.shardSize;
+                let fileShard = _this.getFileShard(shardIndex, shardSize);
+                // 将图片转为base64进行传输
+                let fileReader = new FileReader();
+
+                fileReader.onload = function (e) {
+                    // console.log("base64:", base64);
+                    param.shard = e.target.result;
+                    let data = JSON.stringify(param)
+                    _this.$axios.post(`/image/shard/note/${_this.noteData[_this.noteIndex].id}`, data).then((response) => {
+                        let resp = response.data;
+                        console.log(resp)
+                        if (resp.code === 0) {
+                            // 递归上传
+                            if (shardIndex < shardTotal) {
+                                param.shardIndex += 1
+                                _this.upload(param)
+                            }
+                        } else {
+                            _this.upload(param)
+                        }
+                    });
+                };
+                fileReader.readAsDataURL(fileShard);
+            },
+
+            getFileShard (shardIndex, shardSize) {
+                let file = this.file.raw
+                let start = (shardIndex - 1) * shardSize;	//当前分片起始位置
+                let end = Math.min(file.size, start + shardSize); //当前分片结束位置
+                 //从文件中截取当前的分片数据
+                return file.slice(start, end);
+            },
 
             reload() {
                 location.reload()
@@ -242,6 +428,9 @@
             showDetail(item, i) {
                 this.noteIndex = i
                 let note = this.noteData[i]
+                if (note.id) {
+                    this.uploadUrl = this.domain + note.id
+                }
                 if (this.getIsNeedUpdate(note.id) && this.isOnline && note.id) {
                     // 查看本地是否更新，更新则push笔记，然后修改syncTime
                     this.syncToServer(note.id, note.title, note.content)
@@ -587,6 +776,9 @@
                             _this.noteData = data.data
                             if (_this.noteData.length !== 0) {
                                 _this.editor.value = _this.noteData[0].content
+                                if (_this.noteData[0].id) {
+                                    _this.uploadUrl = _this.domain + _this.noteData[0].id
+                                }
                             }
                         // }
                     }
@@ -640,7 +832,9 @@
             } else {
                 this.$router.push("/login")
             }
-            const _this = this
+            this.uploadHeaders = {
+                Authorization: this.$store.getters.getToken
+            }
             // 初始化笔记
             this.initNotes()
             this.initLastOnlineStatus()

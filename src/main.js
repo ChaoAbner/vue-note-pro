@@ -10,7 +10,7 @@ import "element-ui/lib/theme-chalk/index.css"
 import axios from 'axios'
 import VueAxios from 'vue-axios'
 // import VueCookies from 'vue-cookies'
-
+import md5 from 'js-md5';
 import './axios'
 
 const axios_instance = axios.create({
@@ -24,8 +24,7 @@ const axios_instance = axios.create({
 })
 // 全局引用
 Vue.prototype.$axios = axios
-// Vue.prototype.HOST=''
-
+Vue.prototype.$md5 = md5
 // Vue.use(VueCookies)
 Vue.use(VueAxios, axios_instance);
 // 使用
